@@ -11,8 +11,8 @@ import plotly.express as px
 
 # Configura el título y el icono de la página (solo una vez)
 st.set_page_config(page_title="Dashboard de Tiempo Muerto", 
-                   page_icon=":bar_chart:",  # Icono (puede ser emoji o URL de una imagen)
-                   layout="wide")  # Layout "wide" para más espacio en pantalla
+                   page_icon=":bar_chart:", 
+                   layout="wide")
 
 st.title("Dashboard de Fallas en Máquinas")
 
@@ -40,13 +40,21 @@ if uploaded_file:
     # Sidebar: Filtros
     st.sidebar.header("🎛️ Filtros")
 
-    # Filtro de máquina
+    # Filtro de máquina (multiselect en vez de selectbox)
     maquinas = df["Maquina"].dropna().unique()
-    maquina_seleccionada = st.sidebar.selectbox("Selecciona una máquina", opciones := ["Todas"] + list(maquinas))
+    maquinas_seleccionadas = st.sidebar.multiselect(
+        "Selecciona una(s) máquina(s)", 
+        options=list(maquinas), 
+        default=list(maquinas)
+    )
 
     # Filtro de falla
     fallas = df["Falla"].dropna().unique()
-    fallas_seleccionadas = st.sidebar.multiselect("Selecciona tipo(s) de falla", options=list(fallas), default=list(fallas))
+    fallas_seleccionadas = st.sidebar.multiselect(
+        "Selecciona tipo(s) de falla", 
+        options=list(fallas), 
+        default=list(fallas)
+    )
 
     # Filtro por fecha
     fecha_min = df["Fecha"].min()
@@ -55,18 +63,20 @@ if uploaded_file:
 
     # Filtro por turno
     turnos = df["Turno"].dropna().unique()
-    turnos_seleccionados = st.sidebar.multiselect("Selecciona turno(s)", options=list(turnos), default=list(turnos))
+    turnos_seleccionados = st.sidebar.multiselect(
+        "Selecciona turno(s)", 
+        options=list(turnos), 
+        default=list(turnos)
+    )
 
     # Aplicar filtros
     df_filtrado = df[
         (df["Fecha"] >= pd.to_datetime(fecha_inicio)) &
         (df["Fecha"] <= pd.to_datetime(fecha_fin)) &
         (df["Falla"].isin(fallas_seleccionadas)) &
-        (df["Turno"].isin(turnos_seleccionados))
+        (df["Turno"].isin(turnos_seleccionados)) &
+        (df["Maquina"].isin(maquinas_seleccionadas))
     ]
-
-    if maquina_seleccionada != "Todas":
-        df_filtrado = df_filtrado[df_filtrado["Maquina"] == maquina_seleccionada]
 
     # Módulo 3: Análisis de datos filtrados
     st.subheader("📊 Análisis de Tiempo Muerto y Repetitividad")
@@ -94,6 +104,7 @@ if uploaded_file:
                   barmode="stack")
 
     st.plotly_chart(fig2, use_container_width=True)
+
 
 
 
