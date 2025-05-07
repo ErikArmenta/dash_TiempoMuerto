@@ -28,12 +28,14 @@ if uploaded_file:
 
     # Renombrar columnas
     df = df.rename(columns={
-        "Equipo Descrip.": "Maquina",
-        "Stop Reason": "Falla",
-        "Loss(min)": "Tiempo Muerto",
-        "Fecha": "Fecha",
-        "turno": "Turno"
-    })
+    "Equipo Descrip.": "Maquina",
+    "Stop Reason": "Falla",
+    "Loss(min)": "Tiempo Muerto",
+    "Fecha": "Fecha",
+    "turno": "Turno",
+    "Razon": "Razón"
+   
+   })
 
     df["Fecha"] = pd.to_datetime(df["Fecha"])
 
@@ -128,22 +130,26 @@ if uploaded_file:
     # Módulo 4: Gráficas
     st.subheader("📊 Análisis de Tiempo Muerto y Repetitividad")
 
-    tiempo_muerto_por_maquina = df_filtrado.groupby("Maquina")["Tiempo Muerto"].sum().reset_index()
+    # Gráfica 1: Tiempo muerto con Razón
+    tiempo_muerto_por_maquina = df_filtrado.groupby(["Maquina", "Razón"])["Tiempo Muerto"].sum().reset_index()
 
     fig1 = px.bar(tiempo_muerto_por_maquina, 
                   x="Maquina", 
                   y="Tiempo Muerto", 
+                  color="Tiempo Muerto",
+                  hover_data=["Razón"],
                   title="⏱️ Tiempo Muerto Total por Máquina",
-                  labels={"Tiempo Muerto": "Minutos"},
-                  color="Tiempo Muerto")
+                  labels={"Tiempo Muerto": "Minutos"})
     st.plotly_chart(fig1, use_container_width=True)
 
-    repetitividad = df_filtrado.groupby(["Maquina", "Falla"]).size().reset_index(name="Repeticiones")
+    # Gráfica 2: Repetitividad con Razón
+    repetitividad = df_filtrado.groupby(["Maquina", "Falla", "Razón"]).size().reset_index(name="Repeticiones")
 
     fig2 = px.bar(repetitividad, 
                   x="Maquina", 
                   y="Repeticiones", 
                   color="Falla", 
+                  hover_data=["Razón"],
                   title="🔁 Repetitividad de Fallas por Máquina",
                   barmode="stack")
     st.plotly_chart(fig2, use_container_width=True)
@@ -155,14 +161,27 @@ if uploaded_file:
 
     with col1:
         st.markdown("### Top 10 Máquinas con Mayor Tiempo Muerto")
-        top_maquinas = tiempo_muerto_por_maquina.sort_values(by="Tiempo Muerto", ascending=False).head(10)
+        top_maquinas = df_filtrado.groupby(["Maquina", "Razón"])["Tiempo Muerto"].sum().reset_index()
+        top_maquinas = top_maquinas.sort_values(by="Tiempo Muerto", ascending=False).head(10)
         st.dataframe(top_maquinas, use_container_width=True)
 
     with col2:
         st.markdown("### Top 10 Fallas Más Repetidas")
-        top_fallas = repetitividad.groupby("Falla")["Repeticiones"].sum().reset_index()
+        top_fallas = df_filtrado.groupby(["Falla", "Razón"]).size().reset_index(name="Repeticiones")
         top_fallas = top_fallas.sort_values(by="Repeticiones", ascending=False).head(10)
         st.dataframe(top_fallas, use_container_width=True)
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
