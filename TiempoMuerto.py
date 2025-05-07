@@ -9,17 +9,20 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# Configuración inicial
-st.set_page_config(page_title="Dashboard de Tiempo Muerto", page_icon=":bar_chart:", layout="wide")
+# Configura el título y el icono de la página
+st.set_page_config(page_title="Dashboard de Tiempo Muerto", 
+                   page_icon=":bar_chart:", 
+                   layout="wide")
+
 st.title("Dashboard de Fallas en Máquinas")
 
-# Carga del archivo Excel
+# Módulo 1: Carga de archivo Excel
 uploaded_file = st.file_uploader("📁 Sube tu archivo Excel", type=["xlsx"])
 
 if uploaded_file:
+    # Módulo 2: Carga y exploración
     df = pd.read_excel(uploaded_file)
 
-    # Vista previa
     st.subheader("👀 Vista previa de los datos")
     st.dataframe(df)
 
@@ -31,68 +34,137 @@ if uploaded_file:
         "Fecha": "Fecha",
         "turno": "Turno"
     })
+
     df["Fecha"] = pd.to_datetime(df["Fecha"])
 
-    # Filtros
+    # Sidebar: Filtros
     st.sidebar.header("🎛️ Filtros")
+
     maquinas = df["Maquina"].dropna().unique()
+    maquinas_seleccionadas = st.sidebar.multiselect(
+        "Selecciona una(s) máquina(s)", 
+        options=list(maquinas), 
+        default=list(maquinas)
+    )
+
     fallas = df["Falla"].dropna().unique()
-    turnos = df["Turno"].dropna().unique()
+    fallas_seleccionadas = st.sidebar.multiselect(
+        "Selecciona tipo(s) de falla", 
+        options=list(fallas), 
+        default=list(fallas)
+    )
+
     fecha_min = df["Fecha"].min()
     fecha_max = df["Fecha"].max()
+    fecha_inicio, fecha_fin = st.sidebar.date_input("Selecciona rango de fechas", [fecha_min, fecha_max])
 
-    maquinas_sel = st.sidebar.multiselect("🛠️ Máquina(s)", maquinas, maquinas)
-    fallas_sel = st.sidebar.multiselect("⚠️ Tipo(s) de falla", fallas, fallas)
-    turnos_sel = st.sidebar.multiselect("🕑 Turno(s)", turnos, turnos)
-    fecha_inicio, fecha_fin = st.sidebar.date_input("📅 Rango de fechas", [fecha_min, fecha_max])
+    turnos = df["Turno"].dropna().unique()
+    turnos_seleccionados = st.sidebar.multiselect(
+        "Selecciona turno(s)", 
+        options=list(turnos), 
+        default=list(turnos)
+    )
 
-    # Filtro de datos
+    # Aplicar filtros
     df_filtrado = df[
         (df["Fecha"] >= pd.to_datetime(fecha_inicio)) &
         (df["Fecha"] <= pd.to_datetime(fecha_fin)) &
-        (df["Falla"].isin(fallas_sel)) &
-        (df["Turno"].isin(turnos_sel)) &
-        (df["Maquina"].isin(maquinas_sel))
+        (df["Falla"].isin(fallas_seleccionadas)) &
+        (df["Turno"].isin(turnos_seleccionados)) &
+        (df["Maquina"].isin(maquinas_seleccionadas))
     ]
 
-    # KPIs
-    st.subheader("📌 Indicadores Clave (KPIs)")
+    # Módulo 3: KPIs
+    st.subheader("📈 Indicadores Clave (KPIs)")
+
     total_paros = len(df_filtrado)
-    total_min = df_filtrado["Tiempo Muerto"].sum()
-    maquina_top = df_filtrado["Maquina"].value_counts().idxmax() if not df_filtrado.empty else "N/A"
-    paros_top = df_filtrado["Maquina"].value_counts().max() if not df_filtrado.empty else 0
-
-    maquinas_activas = df_filtrado["Maquina"].nunique()
-    total_disp = maquinas_activas * 24 * 60 if maquinas_activas else 1
-    disponibilidad = 100 - (total_min / total_disp * 100)
-    disponibilidad = max(min(disponibilidad, 100), 0)
-
-    # Colores para disponibilidad
-    color = "green" if disponibilidad >= 95 else "orange" if disponibilidad >= 85 else "red"
+    total_minutos = df_filtrado["Tiempo Muerto"].sum()
+    maquina_mas_paros = df_filtrado["Maquina"].value_counts().idxmax()
+    total_tiempo_turno = len(df_filtrado) * 60  # Ejemplo: cada fila representa un turno de 1 hora
+    disponibilidad = 100 * (1 - total_minutos / total_tiempo_turno) if total_tiempo_turno > 0 else 0
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.markdown(f"### 🔧 Total de Paros\n**{total_paros}**")
-    col2.markdown(f"### ⏱️ Minutos Perdidos\n**{total_min:.0f} min**")
-    col3.markdown(f"### 🏭 Máquina con más paros\n**{maquina_top} ({paros_top})**")
-    col4.markdown(f"<h3>📉 Disponibilidad</h3><h2 style='color:{color}'>{disponibilidad:.2f}%</h2>", unsafe_allow_html=True)
 
-    # Gráficos
-    st.subheader("📊 Análisis Visual")
+    card_style = """
+        background-color: #1e1e1e;
+        padding: 20px;
+        border-radius: 15px;
+        text-align: center;
+        box-shadow: 0 0 10px rgba(255,255,255,0.1);
+    """
 
-    if not df_filtrado.empty:
-        # Gráfico 1: Tiempo Muerto
-        tm = df_filtrado.groupby("Maquina")["Tiempo Muerto"].sum().reset_index()
-        fig1 = px.bar(tm, x="Maquina", y="Tiempo Muerto", color="Tiempo Muerto",
-                      title="⏱️ Tiempo Muerto Total por Máquina")
-        st.plotly_chart(fig1, use_container_width=True)
+    with col1:
+        st.markdown(f"""
+            <div style="{card_style}">
+                <div style="font-size: 20px; font-weight: bold;">🔧 Total de Paros</div>
+                <div style="font-size: 36px; color: white;">{total_paros}</div>
+            </div>
+        """, unsafe_allow_html=True)
 
-        # Gráfico 2: Repetitividad
-        rep = df_filtrado.groupby(["Maquina", "Falla"]).size().reset_index(name="Repeticiones")
-        fig2 = px.bar(rep, x="Maquina", y="Repeticiones", color="Falla", barmode="stack",
-                      title="🔁 Repetitividad de Fallas por Máquina")
-        st.plotly_chart(fig2, use_container_width=True)
-    else:
-        st.warning("No hay datos disponibles con los filtros seleccionados.")
+    with col2:
+        st.markdown(f"""
+            <div style="{card_style}">
+                <div style="font-size: 20px; font-weight: bold;">⏱️ Total Minutos Perdidos</div>
+                <div style="font-size: 36px; color: white;">{total_minutos:.0f} minutos</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with col3:
+        st.markdown(f"""
+            <div style="{card_style}">
+                <div style="font-size: 20px; font-weight: bold;">🏭 Máquina con más Paros</div>
+                <div style="font-size: 28px; color: white;">{maquina_mas_paros}</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    with col4:
+        st.markdown(f"""
+            <div style="{card_style}">
+                <div style="font-size: 20px; font-weight: bold;">📉 % de Disponibilidad</div>
+                <div style="font-size: 36px; color: white;">{disponibilidad:.2f}%</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    # Módulo 4: Gráficas
+    st.subheader("📊 Análisis de Tiempo Muerto y Repetitividad")
+
+    tiempo_muerto_por_maquina = df_filtrado.groupby("Maquina")["Tiempo Muerto"].sum().reset_index()
+
+    fig1 = px.bar(tiempo_muerto_por_maquina, 
+                  x="Maquina", 
+                  y="Tiempo Muerto", 
+                  title="⏱️ Tiempo Muerto Total por Máquina",
+                  labels={"Tiempo Muerto": "Minutos"},
+                  color="Tiempo Muerto")
+    st.plotly_chart(fig1, use_container_width=True)
+
+    repetitividad = df_filtrado.groupby(["Maquina", "Falla"]).size().reset_index(name="Repeticiones")
+
+    fig2 = px.bar(repetitividad, 
+                  x="Maquina", 
+                  y="Repeticiones", 
+                  color="Falla", 
+                  title="🔁 Repetitividad de Fallas por Máquina",
+                  barmode="stack")
+    st.plotly_chart(fig2, use_container_width=True)
+
+    # Módulo 5: Tablas TOP 10
+    st.subheader("🏆 Top 10 - Análisis Detallado")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("### Top 10 Máquinas con Mayor Tiempo Muerto")
+        top_maquinas = tiempo_muerto_por_maquina.sort_values(by="Tiempo Muerto", ascending=False).head(10)
+        st.dataframe(top_maquinas, use_container_width=True)
+
+    with col2:
+        st.markdown("### Top 10 Fallas Más Repetidas")
+        top_fallas = repetitividad.groupby("Falla")["Repeticiones"].sum().reset_index()
+        top_fallas = top_fallas.sort_values(by="Repeticiones", ascending=False).head(10)
+        st.dataframe(top_fallas, use_container_width=True)
+
+
 
 
 
