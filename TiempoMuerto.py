@@ -10,335 +10,496 @@ import pandas as pd
 import plotly.express as px
 
 # Configura el título y el icono de la página
-st.set_page_config(page_title="Dashboard de Tiempo Muerto",
+st.set_page_config(page_title="Dashboard de Tiempo Muerto y Confiabilidad",
                     page_icon=":bar_chart:",
                     layout="wide")
-st.title("Dashboard de Fallas en Máquinas")
-
-# Módulo 1: Carga de archivo Excel
-uploaded_file = st.file_uploader("📁 Sube tu archivo Excel", type=["xlsx"])
-if uploaded_file:
-    # Módulo 2: Carga y exploración
-    df = pd.read_excel(uploaded_file)
-    st.subheader("👀 Vista previa de los datos")
-    st.dataframe(df)
-
-    # Renombrar columnas
-    df = df.rename(columns={
-        "Equipo Descrip.": "Maquina",
-        "Stop Reason": "Falla",
-        "Loss(min)": "Tiempo Muerto",
-        "Fecha": "Fecha",
-        "turno": "Turno",
-        "Razon": "Razón"
-    })
-
-    # Convertir Fecha a datetime
-    df["Fecha"] = pd.to_datetime(df["Fecha"])
-
-    # Eliminar filas con valores nulos en columnas clave
-    df = df.dropna(subset=["Maquina", "Falla", "Turno", "Fecha", "Razón", "Tiempo Muerto"])
-
-    # Sidebar: Filtros
-    st.sidebar.header("🎛️ Filtros")
-
-    maquinas = df["Maquina"].dropna().unique()
-    maquinas_seleccionadas = st.sidebar.multiselect(
-        "Selecciona una(s) máquina(s)",
-        options=list(maquinas),
-        default=list(maquinas)
-    )
-
-    fallas = df["Falla"].dropna().unique()
-    fallas_seleccionadas = st.sidebar.multiselect(
-        "Selecciona tipo(s) de falla",
-        options=list(fallas),
-        default=list(fallas)
-    )
-
-    fecha_min = df["Fecha"].min()
-    fecha_max = df["Fecha"].max()
-
-    # Manejo robusto de fechas en el filtro
-    fechas = st.sidebar.date_input("Selecciona rango de fechas", [fecha_min, fecha_max])
-    if isinstance(fechas, (list, tuple)):
-        fecha_inicio, fecha_fin = fechas
-    else:
-        fecha_inicio = fecha_fin = fechas
-
-    turnos = sorted(df["Turno"].dropna().unique())
-    turno_seleccionado = st.sidebar.selectbox("Selecciona un turno", options=turnos)
-
-    # Mapeo de minutos por turno
-    duraciones_turno = {
-        "1": 570,  # 9.5 horas
-        "2": 510,  # 8.5 horas
-        "3": 360   # 6.0 horas
-    }
-
-    # Filtro por datos seleccionados
-    df_filtrado = df[
-        (df["Fecha"] >= pd.to_datetime(fecha_inicio)) &
-        (df["Fecha"] <= pd.to_datetime(fecha_fin)) &
-        (df["Falla"].isin(fallas_seleccionadas)) &
-        (df["Turno"] == turno_seleccionado) &
-        (df["Maquina"].isin(maquinas_seleccionadas))
-    ].copy() # Usamos .copy() para evitar SettingWithCopyWarning
-
-    # Guardar el DataFrame filtrado en el estado de la sesión
-    st.session_state['df_filtrado'] = df_filtrado
-
-    # Módulo 3: KPIs
-    st.subheader("📈 Indicadores Clave (KPIs)")
-
-    total_paros = len(df_filtrado)
-    total_minutos = df_filtrado["Tiempo Muerto"].sum()
-    maquina_mas_paros = df_filtrado["Maquina"].value_counts().idxmax() if not df_filtrado.empty else "N/A"
-    minutos_por_fila = duraciones_turno.get(str(turno_seleccionado), 0)
-    total_tiempo_turno = len(df_filtrado) * minutos_por_fila
-    disponibilidad = 100 * (1 - total_minutos / total_tiempo_turno) if total_tiempo_turno > 0 else 0
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    card_style = """
-        background-color: #1e1e1e;
-        padding: 20px;
-        border-radius: 15px;
-        text-align: center;
-        box-shadow: 0 0 10px rgba(255,255,255,0.1);
-    """
-
-    with col1:
-        st.markdown(f"""
-            <div style="{card_style}">
-                <div style="font-size: 20px; font-weight: bold;">🔧 Total de Paros</div>
-                <div style="font-size: 36px; color: white;">{total_paros}</div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with col2:
-        st.markdown(f"""
-            <div style="{card_style}">
-                <div style="font-size: 20px; font-weight: bold;">⏱️ Total Minutos Perdidos</div>
-                <div style="font-size: 36px; color: white;">{total_minutos:.0f} minutos</div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with col3:
-        st.markdown(f"""
-            <div style="{card_style}">
-                <div style="font-size: 20px; font-weight: bold;">🏭 Máquina con más Paros</div>
-                <div style="font-size: 28px; color: white;">{maquina_mas_paros}</div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with col4:
-        st.markdown(f"""
-            <div style="{card_style}">
-                <div style="font-size: 20px; font-weight: bold;">📉 % de Disponibilidad</div>
-                <div style="font-size: 36px; color: white;">{disponibilidad:.2f}%</div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    # Módulo 4: Gráficas
-    st.subheader("📊 Análisis de Tiempo Muerto y Repetitividad")
-
-    # Función para clasificar el tiempo muerto
-    def clasificar_tiempo(tiempo):
-        if tiempo >= 120:  # mucho tiempo muerto
-            return "Rojo"
-        elif tiempo >= 60:  # nivel intermedio
-            return "Amarillo"
-        else:
-            return "Verde"
-
-    # Agrupar tiempo muerto por máquina y razón
-    tiempo_muerto_por_maquina = df_filtrado.groupby(["Maquina", "Razón"])["Tiempo Muerto"].sum().reset_index()
-    tiempo_muerto_por_maquina["Nivel"] = tiempo_muerto_por_maquina["Tiempo Muerto"].apply(clasificar_tiempo)
-
-    color_map = {
-        "Rojo": "crimson",
-        "Amarillo": "gold",
-        "Verde": "limegreen"
-    }
-
-    # Gráfico de barras con color por nivel
-    fig1 = px.bar(
-        tiempo_muerto_por_maquina,
-        x="Maquina",
-        y="Tiempo Muerto",
-        color="Nivel",
-        color_discrete_map=color_map,
-        hover_data=["Razón", "Tiempo Muerto"],
-        title="⏱️ Tiempo Muerto Total por Máquina",
-        labels={"Tiempo Muerto": "Minutos"}
-    )
-
-    st.plotly_chart(fig1, use_container_width=True)
-
-    # Gráfica 2: Repetitividad de fallas
-    repetitividad = df_filtrado.groupby(["Maquina", "Falla", "Razón"]).size().reset_index(name="Repeticiones")
-    fig2 = px.bar(repetitividad, x="Maquina", y="Repeticiones", color="Falla",
-                  hover_data=["Razón"], title="🔁 Repetitividad de Fallas por Máquina", barmode="stack")
-    st.plotly_chart(fig2, use_container_width=True)
-
-    # Módulo 5: Tablas TOP 10
-    st.subheader("🏆 Top 10 - Análisis Detallado")
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("### Top 10 Máquinas con Mayor Tiempo Muerto")
-        top_maquinas = df_filtrado.groupby(["Maquina", "Razón"])["Tiempo Muerto"].sum().reset_index()
-        top_maquinas = top_maquinas.sort_values(by="Tiempo Muerto", ascending=False).head(10)
-        st.dataframe(top_maquinas, use_container_width=True)
-
-    with col2:
-        st.markdown("### Top 10 Fallas Más Repetidas")
-        top_fallas = df_filtrado.groupby(["Falla", "Maquina", "Razón"]).size().reset_index(name="Repeticiones")
-        top_fallas = top_fallas.sort_values(by="Repeticiones", ascending=False).head(10)
-        st.dataframe(top_fallas, use_container_width=True)
-    # Módulo 6: Gráfico de Pareto
-    st.subheader("📉 Gráfico de Pareto - Tiempo Muerto por Falla")
-
-    pareto = df_filtrado.groupby("Falla").agg({
-        "Tiempo Muerto": "sum",
-        "Razón": lambda x: ", ".join(x.mode())  # Razón más frecuente
-    }).reset_index()
-
-    pareto = pareto.sort_values(by="Tiempo Muerto", ascending=False)
-    pareto["Porcentaje"] = pareto["Tiempo Muerto"] / pareto["Tiempo Muerto"].sum() * 100
-    pareto["Acumulado %"] = pareto["Porcentaje"].cumsum()
-    pareto["Color"] = pareto["Acumulado %"].apply(lambda x: "crimson" if x <= 80 else "lightgray")
-
-    fig_pareto = px.bar(
-        pareto,
-        x="Falla",
-        y="Tiempo Muerto",
-        color="Color",
-        color_discrete_map="identity",
-        hover_data=["Razón", "Porcentaje", "Acumulado %"],
-        labels={"Tiempo Muerto": "Minutos"},
-        title="Pareto de Tiempo Muerto por Falla"
-    )
-
-    fig_pareto.add_scatter(
-        x=pareto["Falla"],
-        y=pareto["Acumulado %"],
-        mode="lines+markers",
-        name="Acumulado %",
-        yaxis="y2"
-    )
-
-    fig_pareto.update_layout(
-        yaxis2=dict(
-            overlaying="y",
-            side="right",
-            range=[0, 100],
-            title="% Acumulado"
-        ),
-        xaxis_tickangle=-45
-    )
-
-    st.plotly_chart(fig_pareto, use_container_width=True)
-
-    # Explicación del Pareto
-    with st.expander("🧠 ¿Cómo interpretar este gráfico de Pareto?"):
-        st.markdown("""
-        - Este gráfico de Pareto permite visualizar **qué fallas están generando más tiempo muerto**.
-        - Se basa en el principio de Pareto (80/20), que dice que **el 80% del problema proviene del 20% de las causas**.
-        - Las **barras** muestran el tiempo muerto total por tipo de falla.
-        - La **línea roja** muestra el porcentaje acumulado de impacto.
-        - Al observar el cruce del 80%, podemos detectar cuáles son las **fallas críticas a priorizar**.
-
-        👉 **Recomendación**: Concentrarse en eliminar las primeras fallas del gráfico suele dar el mayor beneficio en menos tiempo.
-        """)
-
-# =====================================
-# NUEVA PESTAÑA: ANÁLISIS MTBF Y MTTR
-# =====================================
-st.subheader("⚙️ Análisis de Confiabilidad - MTBF y MTTR")
+st.title("Dashboard de Fallas en Máquinas y Análisis de Confiabilidad")
 
 tab1, tab2 = st.tabs(["📊 Dashboard Principal", "📈 MTBF y MTTR"])
 
-with tab2:
-    st.markdown("### 📅 Filtros para MTBF y MTTR")
+# =====================================
+# TAB 1: DASHBOARD PRINCIPAL
+# =====================================
+with tab1:
+    st.header("📊 Dashboard Principal")
+    # Módulo 1: Carga de archivo Excel (TAB 1)
+    uploaded_file_tab1 = st.file_uploader("📁 Sube tu archivo Excel para el Dashboard Principal", type=["xlsx"], key="file_uploader_tab1")
 
-    # Validación antes de continuar
-    if df is not None and not df.empty and "Maquina" in df.columns and fecha_inicio and fecha_fin:
-        maquinas_mtbf = df["Maquina"].dropna().unique()
-        maquinas_seleccionadas_mtbf = st.multiselect("Selecciona máquina(s) para análisis MTBF/MTTR",
-                                                      options=list(maquinas_mtbf),
-                                                      default=list(maquinas_mtbf))
+    if uploaded_file_tab1:
+        # Módulo 2: Carga y exploración (TAB 1)
+        df_tab1 = pd.read_excel(uploaded_file_tab1)
+        st.subheader("👀 Vista previa de los datos (Dashboard Principal)")
+        st.dataframe(df_tab1)
 
-        if maquinas_seleccionadas_mtbf:
-            df_mtbf = df[
-                (df["Maquina"].isin(maquinas_seleccionadas_mtbf)) &
-                (df["Fecha"] >= pd.to_datetime(fecha_inicio)) &
-                (df["Fecha"] <= pd.to_datetime(fecha_fin))
-            ].copy()
+        # Renombrar columnas (TAB 1)
+        df_tab1 = df_tab1.rename(columns={
+            "Equipo Descrip.": "Maquina",
+            "Stop Reason": "Falla",
+            "Loss(min)": "Tiempo Muerto",
+            "Fecha": "Fecha",
+            "turno": "Turno",
+            "Razon": "Razón"
+        })
 
-            if not df_mtbf.empty:
-                # Conversión a horas
-                df_mtbf["Downtime (hrs)"] = df_mtbf["Tiempo Muerto"] / 60
+        # Convertir Fecha a datetime (TAB 1)
+        df_tab1["Fecha"] = pd.to_datetime(df_tab1["Fecha"])
 
-                # Cálculo total downtime y total fallas por máquina
-                resultados = df_mtbf.groupby("Maquina").agg({
-                    "Downtime (hrs)": "sum",
-                    "Falla": "count"
-                }).rename(columns={"Falla": "Fallas"}).reset_index()
+        # Eliminar filas con valores nulos en columnas clave (TAB 1)
+        df_tab1 = df_tab1.dropna(subset=["Maquina", "Falla", "Turno", "Fecha", "Razón", "Tiempo Muerto"])
 
-                # Supuesto de tiempo total operativo (turnos * duración turno en horas)
-                resultados["Horas Turno"] = df_mtbf.groupby("Maquina")["Turno"].count().values
-                resultados["Total Operacional (hrs)"] = resultados["Horas Turno"] * 8  # ajusta si tus turnos no son de 8h
+        # Sidebar: Filtros (TAB 1)
+        st.sidebar.header("🎛️ Filtros (Dashboard Principal)")
 
-                # Fórmulas
-                resultados["MTBF (hrs)"] = (resultados["Total Operacional (hrs)"] - resultados["Downtime (hrs)"]) / resultados["Fallas"]
-                resultados["MTTR (hrs)"] = resultados["Downtime (hrs)"] / resultados["Fallas"]
+        maquinas_tab1 = df_tab1["Maquina"].dropna().unique()
+        maquinas_seleccionadas_tab1 = st.sidebar.multiselect(
+            "Selecciona una(s) máquina(s)",
+            options=list(maquinas_tab1),
+            default=list(maquinas_tab1),
+            key="maquinas_tab1"
+        )
 
-                # KPIs agregados
-                st.markdown("#### 🔧 Indicadores Generales (KPIs)")
+        fallas_tab1 = df_tab1["Falla"].dropna().unique()
+        fallas_seleccionadas_tab1 = st.sidebar.multiselect(
+            "Selecciona tipo(s) de falla",
+            options=list(fallas_tab1),
+            default=list(fallas_tab1),
+            key="fallas_tab1"
+        )
 
-                total_fallas = int(resultados["Fallas"].sum())
-                promedio_mtbf = resultados["MTBF (hrs)"].mean()
-                downtime_total = resultados["Downtime (hrs)"].sum()
-                promedio_mttr = resultados["MTTR (hrs)"].mean()
+        fecha_min_tab1 = df_tab1["Fecha"].min()
+        fecha_max_tab1 = df_tab1["Fecha"].max()
 
-                col1, col2, col3, col4 = st.columns(4)
-
-                col1.metric("🔩 Fallas", f"{total_fallas}")
-                col2.metric("⏱️ MTBF Promedio", f"{promedio_mtbf:.1f} hrs")
-                col3.metric("💥 Downtime Total", f"{downtime_total:.1f} hrs")
-                col4.metric("🧰 MTTR Promedio", f"{promedio_mttr:.2f} hrs")
-
-                # =============================
-                # GRAFICO PLOTLY MTBF Y MTTR
-                # =============================
-                st.markdown("#### 📉 Gráficos de Confiabilidad")
-
-                fig_mtbf = px.bar(resultados, x="Maquina", y="MTBF (hrs)", title="MTBF por Máquina (Meta > 500 hrs)",
-                                  labels={"MTBF (hrs)": "Horas"})
-                fig_mtbf.add_shape(type="line", x0=-0.5, x1=len(resultados)-0.5, y0=500, y1=500,
-                                   line=dict(color="green", width=2, dash="dash"), name="Meta")
-
-                fig_mttr = px.bar(resultados, x="Maquina", y="MTTR (hrs)", title="MTTR por Máquina (Meta < 2.5 hrs)",
-                                  labels={"MTTR (hrs)": "Horas"})
-                fig_mttr.add_shape(type="line", x0=-0.5, x1=len(resultados)-0.5, y0=2.5, y1=2.5,
-                                   line=dict(color="orange", width=2, dash="dash"), name="Meta")
-
-                fig_downtime = px.bar(resultados, x="Maquina", y="Downtime (hrs)", title="Total Downtime (Meta < 360 hrs)",
-                                      labels={"Downtime (hrs)": "Horas"})
-                fig_downtime.add_shape(type="line", x0=-0.5, x1=len(resultados)-0.5, y0=360, y1=360,
-                                       line=dict(color="red", width=2, dash="dash"), name="Meta")
-
-                st.plotly_chart(fig_mtbf, use_container_width=True)
-                st.plotly_chart(fig_mttr, use_container_width=True)
-                st.plotly_chart(fig_downtime, use_container_width=True)
-            else:
-                st.warning("⚠️ No hay datos disponibles para las fechas o máquinas seleccionadas.")
+        # Manejo robusto de fechas en el filtro (TAB 1)
+        fechas_tab1 = st.sidebar.date_input("Selecciona rango de fechas", [fecha_min_tab1, fecha_max_tab1], key="fechas_tab1")
+        if isinstance(fechas_tab1, (list, tuple)):
+            fecha_inicio_tab1, fecha_fin_tab1 = fechas_tab1
         else:
-            st.info("Por favor selecciona al menos una máquina.")
+            fecha_inicio_tab1 = fecha_fin_tab1 = fechas_tab1
+
+        turnos_tab1 = sorted(df_tab1["Turno"].dropna().unique())
+        turno_seleccionado_tab1 = st.sidebar.selectbox("Selecciona un turno", options=turnos_tab1, key="turno_tab1")
+
+        # Mapeo de minutos por turno (TAB 1)
+        duraciones_turno_tab1 = {
+            "1": 570,  # 9.5 horas
+            "2": 510,  # 8.5 horas
+            "3": 360    # 6.0 horas
+        }
+
+        # Filtro por datos seleccionados (TAB 1)
+        df_filtrado_tab1 = df_tab1[
+            (df_tab1["Fecha"] >= pd.to_datetime(fecha_inicio_tab1)) &
+            (df_tab1["Fecha"] <= pd.to_datetime(fecha_fin_tab1)) &
+            (df_tab1["Falla"].isin(fallas_seleccionadas_tab1)) &
+            (df_tab1["Turno"] == turno_seleccionado_tab1) &
+            (df_tab1["Maquina"].isin(maquinas_seleccionadas_tab1))
+        ].copy()
+
+        # Módulo 3: KPIs (TAB 1)
+        st.subheader("📈 Indicadores Clave (KPIs) - Dashboard Principal")
+
+        total_paros_tab1 = len(df_filtrado_tab1)
+        total_minutos_tab1 = df_filtrado_tab1["Tiempo Muerto"].sum()
+        maquina_mas_paros_tab1 = df_filtrado_tab1["Maquina"].value_counts().idxmax() if not df_filtrado_tab1.empty else "N/A"
+        minutos_por_fila_tab1 = duraciones_turno_tab1.get(str(turno_seleccionado_tab1), 0)
+        total_tiempo_turno_tab1 = len(df_filtrado_tab1) * minutos_por_fila_tab1
+        disponibilidad_tab1 = 100 * (1 - total_minutos_tab1 / total_tiempo_turno_tab1) if total_tiempo_turno_tab1 > 0 else 0
+
+        col1_tab1, col2_tab1, col3_tab1, col4_tab1 = st.columns(4)
+
+        card_style = """
+            background-color: #1e1e1e;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 0 10px rgba(255,255,255,0.1);
+        """
+
+        with col1_tab1:
+            st.markdown(f"""
+                <div style="{card_style}">
+                    <div style="font-size: 20px; font-weight: bold;">🔧 Total de Paros</div>
+                    <div style="font-size: 36px; color: white;">{total_paros_tab1}</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        with col2_tab1:
+            st.markdown(f"""
+                <div style="{card_style}">
+                    <div style="font-size: 20px; font-weight: bold;">⏱️ Total Minutos Perdidos</div>
+                    <div style="font-size: 36px; color: white;">{total_minutos_tab1:.0f} minutos</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        with col3_tab1:
+            st.markdown(f"""
+                <div style="{card_style}">
+                    <div style="font-size: 20px; font-weight: bold;">🏭 Máquina con más Paros</div>
+                    <div style="font-size: 28px; color: white;">{maquina_mas_paros_tab1}</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        with col4_tab1:
+            st.markdown(f"""
+                <div style="{card_style}">
+                    <div style="font-size: 20px; font-weight: bold;">📉 % de Disponibilidad</div>
+                    <div style="font-size: 36px; color: white;">{disponibilidad_tab1:.2f}%</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        # Módulo 4: Gráficas (TAB 1)
+        st.subheader("📊 Análisis de Tiempo Muerto y Repetitividad - Dashboard Principal")
+
+        # Función para clasificar el tiempo muerto (TAB 1)
+        def clasificar_tiempo_tab1(tiempo):
+            if tiempo >= 120:  # mucho tiempo muerto
+                return "Rojo"
+            elif tiempo >= 60:  # nivel intermedio
+                return "Amarillo"
+            else:
+                return "Verde"
+
+        # Agrupar tiempo muerto por máquina y razón (TAB 1)
+        tiempo_muerto_por_maquina_tab1 = df_filtrado_tab1.groupby(["Maquina", "Razón"])["Tiempo Muerto"].sum().reset_index()
+        tiempo_muerto_por_maquina_tab1["Nivel"] = tiempo_muerto_por_maquina_tab1["Tiempo Muerto"].apply(clasificar_tiempo_tab1)
+
+        color_map_tab1 = {
+            "Rojo": "crimson",
+            "Amarillo": "gold",
+            "Verde": "limegreen"
+        }
+
+        # Gráfico de barras con color por nivel (TAB 1)
+        fig1_tab1 = px.bar(
+            tiempo_muerto_por_maquina_tab1,
+            x="Maquina",
+            y="Tiempo Muerto",
+            color="Nivel",
+            color_discrete_map=color_map_tab1,
+            hover_data=["Razón", "Tiempo Muerto"],
+            title="⏱️ Tiempo Muerto Total por Máquina",
+            labels={"Tiempo Muerto": "Minutos"}
+        )
+        st.plotly_chart(fig1_tab1, use_container_width=True)
+
+        # Gráfica 2: Repetitividad de fallas (TAB 1)
+        repetitividad_tab1 = df_filtrado_tab1.groupby(["Maquina", "Falla", "Razón"]).size().reset_index(name="Repeticiones")
+        fig2_tab1 = px.bar(repetitividad_tab1, x="Maquina", y="Repeticiones", color="Falla",
+                            hover_data=["Razón"], title="🔁 Repetitividad de Fallas por Máquina", barmode="stack")
+        st.plotly_chart(fig2_tab1, use_container_width=True)
+
+        # Módulo 5: Tablas TOP 10 (TAB 1)
+        st.subheader("🏆 Top 10 - Análisis Detallado - Dashboard Principal")
+        col1_top_tab1, col2_top_tab1 = st.columns(2)
+
+        with col1_top_tab1:
+            st.markdown("### Top 10 Máquinas con Mayor Tiempo Muerto")
+            top_maquinas_tab1 = df_filtrado_tab1.groupby(["Maquina", "Razón"])["Tiempo Muerto"].sum().reset_index()
+            top_maquinas_tab1 = top_maquinas_tab1.sort_values(by="Tiempo Muerto", ascending=False).head(10)
+            st.dataframe(top_maquinas_tab1, use_container_width=True)
+
+        with col2_top_tab1:
+            st.markdown("### Top 10 Fallas Más Repetidas")
+            top_fallas_tab1 = df_filtrado_tab1.groupby(["Falla", "Maquina", "Razón"]).size().reset_index(name="Repeticiones")
+            top_fallas_tab1 = top_fallas_tab1.sort_values(by="Repeticiones", ascending=False).head(10)
+            st.dataframe(top_fallas_tab1, use_container_width=True)
+
+        # Módulo 6: Gráfico de Pareto (TAB 1)
+        st.subheader("📉 Gráfico de Pareto - Tiempo Muerto por Falla - Dashboard Principal")
+
+        pareto_tab1 = df_filtrado_tab1.groupby("Falla").agg({
+            "Tiempo Muerto": "sum",
+            "Razón": lambda x: ", ".join(x.mode())  # Razón más frecuente
+        }).reset_index()
+
+        pareto_tab1 = pareto_tab1.sort_values(by="Tiempo Muerto", ascending=False)
+        pareto_tab1["Porcentaje"] = pareto_tab1["Tiempo Muerto"] / pareto_tab1["Tiempo Muerto"].sum() * 100
+        pareto_tab1["Acumulado %"] = pareto_tab1["Porcentaje"].cumsum()
+        pareto_tab1["Color"] = pareto_tab1["Acumulado %"].apply(lambda x: "crimson" if x <= 80 else "lightgray")
+
+        fig_pareto_tab1 = px.bar(
+            pareto_tab1,
+            x="Falla",
+            y="Tiempo Muerto",
+            color="Color",
+            color_discrete_map="identity",
+            hover_data=["Razón", "Porcentaje", "Acumulado %"],
+            labels={"Tiempo Muerto": "Minutos"},
+            title="Pareto de Tiempo Muerto por Falla"
+        )
+
+        fig_pareto_tab1.add_scatter(
+            x=pareto_tab1["Falla"],
+            y=pareto_tab1["Acumulado %"],
+            mode="lines+markers",
+            name="Acumulado %",
+            yaxis="y2"
+        )
+
+        fig_pareto_tab1.update_layout(
+            yaxis2=dict(
+                overlaying="y",
+                side="right",
+                range=[0, 100],
+                title="% Acumulado"
+            ),
+            xaxis_tickangle=-45
+        )
+        st.plotly_chart(fig_pareto_tab1, use_container_width=True)
+
+        # Explicación del Pareto (TAB 1)
+        with st.expander("🧠 ¿Cómo interpretar este gráfico de Pareto? - Dashboard Principal"):
+            st.markdown("""
+            - Este gráfico de Pareto permite visualizar **qué fallas están generando más tiempo muerto**.
+            - Se basa en el principio de Pareto (80/20), que dice que **el 80% del problema proviene del 20% de las causas**.
+            - Las **barras** muestran el tiempo muerto total por tipo de falla.
+            - La **línea roja** muestra el porcentaje acumulado de impacto.
+            - Al observar el cruce del 80%, podemos detectar cuáles son las **fallas críticas a priorizar**.
+
+            👉 **Recomendación**: Concentrarse en eliminar las primeras fallas del gráfico suele dar el mayor beneficio en menos tiempo.
+            """)
     else:
-        st.error("⚠️ Aún no se han cargado los datos correctamente o falta seleccionar un rango de fechas.")
+        st.info("Por favor, sube un archivo Excel en esta pestaña para ver el Dashboard Principal.")
+
+# =====================================
+# TAB 2: ANÁLISIS MTBF Y MTTR
+# =====================================
+with tab2:
+    st.header("⚙️ Análisis de Confiabilidad - MTBF y MTTR")
+    # Módulo de carga de archivo Excel (TAB 2)
+    uploaded_file_tab2 = st.file_uploader("📁 Sube tu archivo Excel para el Análisis MTBF/MTTR", type=["xlsx"], key="file_uploader_tab2")
+
+    if uploaded_file_tab2:
+        # Carga y procesamiento de datos (TAB 2)
+        df_tab2 = pd.read_excel(uploaded_file_tab2)
+        st.subheader("👀 Vista previa de los datos (Análisis MTBF/MTTR)")
+        st.dataframe(df_tab2)
+
+        # Renombrar columnas (TAB 2) - Asegúrate de que los nombres coincidan con lo esperado para MTBF/MTTR
+        df_tab2 = df_tab2.rename(columns={
+            "Equipo Descrip.": "Maquina",
+            "Stop Reason": "Falla",
+            "Loss(min)": "Tiempo Muerto",
+            "Fecha": "Fecha",
+            "turno": "Turno"
+            # Puedes necesitar otras columnas dependiendo de tu lógica de MTBF/MTTR
+        })
+
+        # Convertir Fecha a datetime (TAB 2)
+        df_tab2["Fecha"] = pd.to_datetime(df_tab2["Fecha"])
+
+        # Eliminar filas con valores nulos en columnas clave (TAB 2)
+        df_tab2 = df_tab2.dropna(subset=["Maquina", "Falla", "Turno", "Fecha", "Tiempo Muerto"])
+
+        st.markdown("### 📅 Filtros para MTBF y MTTR")
+
+        maquinas_mtbf_tab2 = df_tab2["Maquina"].dropna().unique()
+        maquinas_seleccionadas_mtbf_tab2 = st.multiselect("Selecciona máquina(s) para análisis MTBF/MTTR",
+                                                            options=list(maquinas_mtbf_tab2),
+                                                            default=list(maquinas_mtbf_tab2),
+                                                            key="maquinas_mtbf_tab2")
+
+        fecha_min_mtbf_tab2 = df_tab2["Fecha"].min()
+        fecha_max_mtbf_tab2 = df_tab2["Fecha"].max()
+        fechas_mtbf_tab2 = st.date_input("Selecciona rango de fechas para MTBF/MTTR", [fecha_min_mtbf_tab2, fecha_max_mtbf_tab2], key="fechas_mtbf_tab2")
+        if isinstance(fechas_mtbf_tab2, (list, tuple)):
+            fecha_inicio_mtbf_tab2, fecha_fin_mtbf_tab2 = fechas_mtbf_tab2
+        else:
+            fecha_inicio_mtbf_tab2 = fecha_fin_mtbf_tab2 = fechas_mtbf_tab2
+
+        turnos_disponibles_tab2 = df_tab2["Turno"].dropna().unique()
+        turno_seleccionado_tab2 = st.selectbox("Selecciona el turno para el análisis",
+                                                options=["Todos"] + list(turnos_disponibles_tab2),
+                                                index=0,
+                                                key="turno_seleccionado_tab2")
+
+        df_mtbf_filtrado_tab2 = df_tab2[
+            (df_tab2["Maquina"].isin(maquinas_seleccionadas_mtbf_tab2)) &
+            (df_tab2["Fecha"] >= pd.to_datetime(fecha_inicio_mtbf_tab2)) &
+            (df_tab2["Fecha"] <= pd.to_datetime(fecha_fin_mtbf_tab2))
+        ].copy()
+
+        if turno_seleccionado_tab2 != "Todos":
+            df_mtbf_filtrado_tab2 = df_mtbf_filtrado_tab2[df_mtbf_filtrado_tab2["Turno"] == turno_seleccionado_tab2]
+
+        if not df_mtbf_filtrado_tab2.empty:
+            # Conversión a horas
+            df_mtbf_filtrado_tab2["Downtime (hrs)"] = df_mtbf_filtrado_tab2["Tiempo Muerto"] / 60
+
+            # Cálculo total downtime y total fallas por máquina
+            resultados_tab2 = df_mtbf_filtrado_tab2.groupby("Maquina").agg({
+                "Downtime (hrs)": "sum",
+                "Falla": "count",
+                "Turno": "first"  # Tomamos el primer turno de cada grupo para determinar la duración
+            }).rename(columns={"Falla": "Fallas"}).reset_index()
+
+            # Definir la duración del turno basado en la selección
+            def get_turno_duration(turno):
+                if turno == "Primer Turno":
+                    return 9.5
+                elif turno == "Segundo Turno":
+                    return 8.5
+                elif turno == "Tercer Turno":
+                    return 6.0
+                return 8.0  # Duración por defecto si no coincide
+
+            resultados_tab2["Duracion Turno (hrs)"] = resultados_tab2["Turno"].apply(get_turno_duration)
+
+            # Supuesto de tiempo total operativo (número de ocurrencias * duración del turno)
+            resultados_tab2["Total Operacional (hrs)"] = df_mtbf_filtrado_tab2.groupby("Maquina")["Turno"].count().values * resultados_tab2["Duracion Turno (hrs)"].values
+
+            # Fórmulas
+            resultados_tab2["MTBF (hrs)"] = (resultados_tab2["Total Operacional (hrs)"] - resultados_tab2["Downtime (hrs)"]) / resultados_tab2["Fallas"]
+            resultados_tab2["MTTR (hrs)"] = resultados_tab2["Downtime (hrs)"] / resultados_tab2["Fallas"]
+
+            # KPIs agregados
+            st.markdown("#### 🔧 Indicadores Generales (KPIs) - Análisis MTBF/MTTR")
+
+            total_fallas_tab2 = int(resultados_tab2["Fallas"].sum()) if not resultados_tab2.empty else 0
+            promedio_mtbf_tab2 = resultados_tab2["MTBF (hrs)"].mean() if not resultados_tab2.empty else 0
+            downtime_total_tab2 = resultados_tab2["Downtime (hrs)"].sum() if not resultados_tab2.empty else 0
+            promedio_mttr_tab2 = resultados_tab2["MTTR (hrs)"].mean() if not resultados_tab2.empty else 0
+
+            col1_tab2_kpi, col2_tab2_kpi, col3_tab2_kpi, col4_tab2_kpi = st.columns(4)
+
+            col1_tab2_kpi.metric("🔩 Fallas", f"{total_fallas_tab2}")
+            col2_tab2_kpi.metric("⏱️ MTBF Promedio", f"{promedio_mtbf_tab2:.1f} hrs")
+            col3_tab2_kpi.metric("💥 Downtime Total", f"{downtime_total_tab2:.1f} hrs")
+            col4_tab2_kpi.metric("🧰 MTTR Promedio", f"{promedio_mttr_tab2:.2f} hrs")
+
+            # =============================
+            # GRAFICO PLOTLY MTBF Y MTTR
+            # =============================
+            st.markdown("#### 📉 Gráficos de Confiabilidad")
+
+            if not resultados_tab2.empty:
+                fig_mtbf_tab2 = px.bar(resultados_tab2, x="Maquina", y="MTBF (hrs)", title="MTBF por Máquina (Meta > 500 hrs)",
+                                            labels={"MTBF (hrs)": "Horas"})
+                fig_mtbf_tab2.add_shape(type="line", x0=-0.5, x1=len(resultados_tab2) - 0.5, y0=500, y1=500,
+                                            line=dict(color="green", width=2, dash="dash"), name="Meta")
+                st.plotly_chart(fig_mtbf_tab2, use_container_width=True)
+
+                fig_mttr_tab2 = px.bar(resultados_tab2, x="Maquina", y="MTTR (hrs)", title="MTTR por Máquina (Meta < 2.5 hrs)",
+                                            labels={"MTTR (hrs)": "Horas"})
+                fig_mttr_tab2.add_shape(type="line", x0=-0.5, x1=len(resultados_tab2) - 0.5, y0=2.5, y1=2.5,
+                                            line=dict(color="orange", width=2, dash="dash"), name="Meta")
+                st.plotly_chart(fig_mttr_tab2, use_container_width=True)
+
+                fig_downtime_tab2 = px.bar(resultados_tab2, x="Maquina", y="Downtime (hrs)", title="Total Downtime (Meta < 360 hrs)",
+                                                 labels={"Downtime (hrs)": "Horas"})
+                fig_downtime_tab2.add_shape(type="line", x0=-0.5, x1=len(resultados_tab2) - 0.5, y0=360, y1=360,
+                                                 line=dict(color="red", width=2, dash="dash"), name="Meta")
+                st.plotly_chart(fig_downtime_tab2, use_container_width=True)
+            else:
+                st.warning("⚠️ No hay datos disponibles para las fechas o máquinas seleccionadas en el análisis MTBF/MTTR.")
+        else:
+            st.warning("⚠️ No hay datos disponibles para las fechas o máquinas seleccionadas en el análisis MTBF/MTTR.")
+    else:
+        st.info("Por favor, sube un archivo Excel en esta pestaña para habilitar el análisis de MTBF y MTTR.")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
