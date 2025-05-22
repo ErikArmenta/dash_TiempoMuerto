@@ -373,7 +373,7 @@ with tab2:
             st.markdown("#### 📉 Gráficos de Confiabilidad (Promedio Mensual)")
 
             if not resultados_tab2.empty:
-                fig_mtbf_tab2 = px.bar(resultados_tab2, x="Maquina", y="MTBF (hrs)", title="MTBF Máquina (Meta > 500 hrs?)", labels={"MTBF (hrs)": "Horas"})
+                fig_mtbf_tab2 = px.bar(resultados_tab2, x="Maquina", y="MTBF (hrs)", title="MTBF Máquina (Meta > 500 hrs)", labels={"MTBF (hrs)": "Horas"})
                 fig_mtbf_tab2.add_shape(type="line", x0=-0.5, x1=len(resultados_tab2) - 0.5, y0=500, y1=500, line=dict(color="green", width=2, dash="dash"), name="Meta")
                 st.plotly_chart(fig_mtbf_tab2, use_container_width=True)
 
