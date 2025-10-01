@@ -11,6 +11,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
+
 # Configura el título y el icono de la página
 st.set_page_config(page_title="Dashboard de Tiempo Muerto y Confiabilidad",
                     page_icon=":bar_chart:",
@@ -402,7 +403,6 @@ with tab2:
 
 
 
-
 # =====================================
 # TAB 3: FRECUENCIAS
 # =====================================
@@ -424,10 +424,16 @@ with tab3:
         try:
             col_maquina = df_tab3.columns[7]      # Columna H → Equipment Desc. (Máquina)
             col_frecuencia = df_tab3.columns[8]   # Columna I → Operation Desc. (Frecuencia texto)
-            col_departamento = df_tab3.columns[10] # Columna K → Sap W/C (Departamento)
+            col_departamento = df_tab3.columns[10] # Columna K → Sap W/C (Departamento) ✅ CORREGIDO
         except:
             st.error("⚠️ No se encontraron las columnas H, I o K en el archivo.")
             st.stop()
+
+        # Mostrar información de columnas
+        st.write("🔍 **Columnas identificadas:**")
+        st.write(f"- Máquina: {col_maquina} (columna H)")
+        st.write(f"- Frecuencia: {col_frecuencia} (columna I)")
+        st.write(f"- Departamento: {col_departamento} (columna K)")
 
         # Renombrar para trabajar más fácil
         df_tab3 = df_tab3.rename(columns={
@@ -436,8 +442,19 @@ with tab3:
             col_departamento: "Departamento"
         })
 
+        # Mostrar datos después del renombrado
+        st.write("📋 **Datos después del renombrado:**")
+        st.dataframe(df_tab3[["Maquina", "Frecuencia_Texto", "Departamento"]].head(10))
+
         # Quitar filas vacías en Departamento
         df_tab3_clean = df_tab3.dropna(subset=["Departamento"])
+
+        st.write(f"✅ **Filas después de limpiar:** {len(df_tab3_clean)}")
+
+        # Verificar si hay datos
+        if len(df_tab3_clean) == 0:
+            st.error("❌ No hay datos válidos después de limpiar las filas vacías")
+            st.stop()
 
         # Calcular frecuencias - contar cuántas veces aparece cada Departamento
         frecuencias = df_tab3_clean["Departamento"].value_counts().reset_index()
@@ -446,46 +463,40 @@ with tab3:
         st.subheader("📊 Tabla de Frecuencias por Departamento")
         st.dataframe(frecuencias, use_container_width=True)
 
-        # PREPARAR DATOS PARA HOVER - FORMA MÁS SIMPLE
-        # Crear texto personalizado para cada barra
-        hover_texts = []
-        for depto in frecuencias["Departamento"]:
-            depto_data = df_tab3_clean[df_tab3_clean["Departamento"] == depto]
-            # Obtener frecuencias únicas
-            frecuencias_unicas = depto_data["Frecuencia_Texto"].unique()[:3]  # Máximo 3 frecuencias
-            frecuencias_str = ", ".join(frecuencias_unicas)
-            if len(depto_data["Frecuencia_Texto"].unique()) > 3:
-                frecuencias_str += "..."
+        # Preparar datos para el gráfico con información de máquinas
+        stats_departamento = df_tab3_clean.groupby("Departamento").agg({
+            "Maquina": ["count", lambda x: ", ".join(x.astype(str))],
+            "Frecuencia_Texto": "first"
+        }).reset_index()
 
-            # Obtener algunas máquinas de ejemplo
-            maquinas_ejemplo = depto_data["Maquina"].head(2).tolist()  # Primeras 2 máquinas
-            maquinas_str = ", ".join(maquinas_ejemplo)
-            if len(depto_data) > 2:
-                maquinas_str += f"... (+{len(depto_data)-2} más)"
+        # Aplanar columnas multiindex
+        stats_departamento.columns = ["Departamento", "Cantidad_Maquinas", "Lista_Maquinas", "Frecuencia_Ejemplo"]
 
-            texto_hover = (
-                f"<b>Departamento: {depto}</b><br>"
-                f"Total máquinas: {len(depto_data)}<br>"
-                f"Frecuencias: {frecuencias_str}<br>"
-                f"Máquinas: {maquinas_str}"
-            )
-            hover_texts.append(texto_hover)
-
-        # Gráfico de barras con hover SIMPLIFICADO
+        # Gráfico de barras
         st.subheader("📉 Gráfico de Frecuencias por Departamento")
 
-        fig_freq = px.bar(frecuencias,
+        fig_freq = px.bar(stats_departamento,
                           x="Departamento",
-                          y="Cantidad",
-                          color="Cantidad",
-                          text="Cantidad",
-                          title="Frecuencias por Departamento")
+                          y="Cantidad_Maquinas",
+                          color="Cantidad_Maquinas",
+                          text="Cantidad_Maquinas",
+                          title="Frecuencias por Departamento",
+                          hover_data={
+                              "Departamento": False,
+                              "Cantidad_Maquinas": False,
+                              "Frecuencia_Ejemplo": True
+                          })
 
-        # ASIGNAR LOS TEXTOS DE HOVER DIRECTAMENTE
+        # Personalizar el hover
         fig_freq.update_traces(
             textposition="outside",
-            hovertemplate="%{customdata}<extra></extra>",
-            customdata=hover_texts
+            hovertemplate="<br>".join([
+                "<b>Departamento: %{x}</b>",
+                "Cantidad de Máquinas: %{y}",
+                "Frecuencia: %{customdata[0]}",
+                "<extra></extra>"
+            ]),
+            customdata=stats_departamento[["Frecuencia_Ejemplo"]]
         )
 
         fig_freq.update_layout(
@@ -499,18 +510,16 @@ with tab3:
         # Mostrar detalle expandible por departamento
         st.subheader("🔍 Detalle Completo por Departamento")
 
-        for depto in frecuencias["Departamento"].unique():
-            depto_data = df_tab3_clean[df_tab3_clean["Departamento"] == depto]
+        for depto in stats_departamento["Departamento"].unique():
+            depto_data = stats_departamento[stats_departamento["Departamento"] == depto].iloc[0]
+            maquinas_depto = df_tab3_clean[df_tab3_clean["Departamento"] == depto]
 
-            with st.expander(f"📋 {depto} - {len(depto_data)} máquinas"):
+            with st.expander(f"📋 {depto} - {depto_data['Cantidad_Maquinas']} máquinas"):
                 st.write(f"**Frecuencias encontradas:**")
-                for freq in depto_data['Frecuencia_Texto'].unique():
-                    count = len(depto_data[depto_data['Frecuencia_Texto'] == freq])
-                    st.write(f"- {freq}: {count} máquinas")
+                st.write(", ".join(maquinas_depto['Frecuencia_Texto'].unique()))
 
-                st.write(f"**Lista de máquinas:**")
-                for idx, row in depto_data.iterrows():
-                    st.write(f"- {row['Maquina']}")
+                # Mostrar tabla de máquinas con sus frecuencias
+                st.dataframe(maquinas_depto[["Maquina", "Frecuencia_Texto"]].reset_index(drop=True))
 
     else:
         st.info("📥 Por favor, sube un archivo Excel en esta pestaña para analizar las frecuencias.")
