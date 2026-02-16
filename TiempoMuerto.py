@@ -22,7 +22,7 @@ st.set_page_config(
 
 st.title("Dashboard de Fallas en Máquinas y Análisis de Confiabilidad")
 
-tab1, tab2, tab3 = st.tabs(["📊 Dashboard Principal", "📈 MTBF y MTTR", "📌 Frecuencias por Departamento"])
+tab1, tab2, tab3 = st.tabs(["📊 Dashboard Principal", "📈 MTBF y MTTR"])
 
 # =====================================
 # TAB 1: DASHBOARD PRINCIPAL
@@ -439,6 +439,7 @@ with tab2:
 
     else:
         st.info("📥 Por favor, sube un archivo Excel para realizar el análisis de MTBF y MTTR.")
+
 
 
 
